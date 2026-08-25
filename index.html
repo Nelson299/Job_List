@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign In — Static Electric Jobs</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="card centered-form">
+      <h1>Static Electric</h1>
+      <p class="hint">Sign in with your first and last name. Don't have an account yet? Ask an admin to add you.</p>
+      <form id="sign-in-form">
+        <label for="first-name">First name</label>
+        <input type="text" id="first-name" required autocomplete="given-name" />
+        <label for="last-name">Last name</label>
+        <input type="text" id="last-name" required autocomplete="family-name" />
+        <label for="password">Password <span class="hint">(admins only)</span></label>
+        <input type="password" id="password" autocomplete="current-password" />
+        <div id="error" class="error-text" style="display:none"></div>
+        <div style="margin-top:16px">
+          <button type="submit" id="submit-btn">Sign in</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/github-api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/activity.js"></script>
+  <script>
+    // If already signed in, skip straight to the jobs list.
+    if (Auth.getCurrentUser()) window.location.href = "jobs.html";
+
+    const form = document.getElementById("sign-in-form");
+    const errorEl = document.getElementById("error");
+    const submitBtn = document.getElementById("submit-btn");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      errorEl.style.display = "none";
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Signing in...";
+
+      const firstName = document.getElementById("first-name").value;
+      const lastName = document.getElementById("last-name").value;
+      const password = document.getElementById("password").value;
+
+      try {
+        const result = await Auth.signIn(firstName, lastName, password);
+        if (!result.ok) {
+          const messages = {
+            not_found: "Name not recognized. Ask an admin to add you as a user first.",
+            password_required: "That name belongs to an admin account — enter your password.",
+            bad_password: "Incorrect password.",
+          };
+          errorEl.textContent = messages[result.reason] || "Sign in failed.";
+          errorEl.style.display = "block";
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Sign in";
+          return;
+        }
+        await Activity.logActivity("sign_in");
+        window.location.href = "jobs.html";
+      } catch (err) {
+        console.error(err);
+        errorEl.textContent =
+          "Couldn't reach GitHub. Check js/config.js has a valid token and repo set.";
+        errorEl.style.display = "block";
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Sign in";
+      }
+    });
+  </script>
+</body>
+</html>

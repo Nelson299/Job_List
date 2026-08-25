@@ -1,0 +1,16 @@
+Ideas for Static Electric version of CompanyCam
+
+- Have users sign in with first and last name 
+- Have certain users have admin privledges to the html page
+- Be able to upload and take photos within the page
+- Be able to voice to text the notes section of a job
+- Have an employee contacts page in case other employees don't have their number
+- Have security alerts to alert admin team of any weird behavior done on the site
+- Have customer address book that user can view or search when adding a new job
+- Give admin team the ability to create jobs ahead of schedule and see them grayed out until the date arrives
+- Give admin team the ability to see what all each user did within the page during the work day
+- Give all users the ability to submit feedback of ideas or bugs to admin team to fix
+- Have a search bar on jobs tab to search for a job
+- Be able to tie jobs to a certain company but have different titles
+- Be able to add parts used for the job within the job
+- Admin be able to assign employees to a certain job 

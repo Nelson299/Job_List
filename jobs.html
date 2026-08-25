@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Jobs — Static Electric</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="nav-placeholder"></div>
+  <div class="container">
+    <h1>Jobs</h1>
+
+    <div class="card">
+      <div class="field-row">
+        <div>
+          <label for="search">Search jobs</label>
+          <input type="text" id="search" placeholder="Search by job title or company..." />
+        </div>
+        <div style="flex: 0 0 auto; align-self: flex-end;">
+          <button id="new-job-toggle">+ New Job</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="new-job-card" style="display:none">
+      <h3>New Job</h3>
+      <form id="new-job-form">
+        <label for="job-title">Job title</label>
+        <input type="text" id="job-title" required placeholder="e.g. Panel Upgrade" />
+
+        <label for="job-company">Company</label>
+        <select id="job-company" required></select>
+        <p class="hint">Don't see the company? <a href="address-book.html">Add it in the address book</a> first.</p>
+
+        <div id="admin-schedule-field" style="display:none">
+          <label for="job-date">Scheduled date</label>
+          <input type="date" id="job-date" />
+          <p class="hint">Future dates will show as grayed out on the jobs list until that day arrives.</p>
+        </div>
+
+        <div id="error" class="error-text" style="display:none"></div>
+        <div style="margin-top:16px; display:flex; gap:8px;">
+          <button type="submit">Create Job</button>
+          <button type="button" class="secondary" id="cancel-new-job">Cancel</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="job-list" class="loading">Loading jobs...</div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/github-api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/activity.js"></script>
+  <script src="js/nav.js"></script>
+  <script>
+    const user = Auth.requireAuth();
+    if (user) {
+      renderNav("jobs.html");
+      init();
+    }
+
+    let allJobs = [];
+    let allCompanies = [];
+
+    async function init() {
+      const [jobsRes, companiesRes] = await Promise.all([
+        GitHubAPI.getJSON("data/jobs.json"),
+        GitHubAPI.getJSON("data/companies.json"),
+      ]);
+      allJobs = jobsRes ? jobsRes.data : [];
+      allCompanies = companiesRes ? companiesRes.data : [];
+      populateCompanySelect();
+      renderJobs(allJobs);
+
+      if (user.isAdmin) {
+        document.getElementById("admin-schedule-field").style.display = "block";
+      }
+    }
+
+    function populateCompanySelect() {
+      const select = document.getElementById("job-company");
+      select.innerHTML =
+        '<option value="">Select a company...</option>' +
+        allCompanies
+          .map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`)
+          .join("");
+    }
+
+    function companyName(companyId) {
+      const c = allCompanies.find((c) => c.id === companyId);
+      return c ? c.name : "Unknown company";
+    }
+
+    function todayStr() {
+      return new Date().toISOString().slice(0, 10);
+    }
+
+    function renderJobs(jobs) {
+      const listEl = document.getElementById("job-list");
+      if (jobs.length === 0) {
+        listEl.innerHTML = '<p class="hint">No jobs yet.</p>';
+        return;
+      }
+      const sorted = [...jobs].sort((a, b) =>
+        (a.scheduledDate || "").localeCompare(b.scheduledDate || "")
+      );
+      const today = todayStr();
+      listEl.innerHTML = sorted
+        .map((job) => {
+          const isFuture = job.scheduledDate && job.scheduledDate > today;
+          const status = isFuture ? "scheduled" : job.status || "active";
+          return `
+            <a href="job.html?id=${job.id}" class="list-item ${isFuture ? "scheduled-future" : ""}">
+              <div>
+                <strong>${escapeHtml(job.title)}</strong>
+                <div class="meta">${escapeHtml(companyName(job.companyId))} · ${job.scheduledDate || "no date"}</div>
+              </div>
+              <span class="badge ${status}">${status}</span>
+            </a>
+          `;
+        })
+        .join("");
+    }
+
+    document.getElementById("search").addEventListener("input", (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      if (!q) return renderJobs(allJobs);
+      renderJobs(
+        allJobs.filter(
+          (j) =>
+            j.title.toLowerCase().includes(q) ||
+            companyName(j.companyId).toLowerCase().includes(q)
+        )
+      );
+    });
+
+    document.getElementById("new-job-toggle").addEventListener("click", () => {
+      document.getElementById("new-job-card").style.display = "block";
+    });
+    document.getElementById("cancel-new-job").addEventListener("click", () => {
+      document.getElementById("new-job-card").style.display = "none";
+    });
+
+    document.getElementById("new-job-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById("error");
+      errorEl.style.display = "none";
+
+      const title = document.getElementById("job-title").value.trim();
+      const companyId = document.getElementById("job-company").value;
+      const dateInput = document.getElementById("job-date").value;
+      const scheduledDate = user.isAdmin && dateInput ? dateInput : todayStr();
+
+      if (!companyId) {
+        errorEl.textContent = "Please select a company.";
+        errorEl.style.display = "block";
+        return;
+      }
+
+      const newJob = {
+        id: "job-" + Date.now(),
+        title,
+        companyId,
+        scheduledDate,
+        status: scheduledDate > todayStr() ? "scheduled" : "active",
+        assignedUserIds: [user.id],
+        notes: "",
+        parts: [],
+        photoPaths: [],
+        createdBy: user.id,
+        createdAt: new Date().toISOString(),
+      };
+
+      try {
+        await GitHubAPI.updateJSON(
+          "data/jobs.json",
+          (current) => [...current, newJob],
+          `Add job: ${title}`
+        );
+        await Activity.logActivity("job_created", { jobId: newJob.id, title });
+        window.location.href = `job.html?id=${newJob.id}`;
+      } catch (err) {
+        console.error(err);
+        errorEl.textContent = "Failed to save job. Please try again.";
+        errorEl.style.display = "block";
+      }
+    });
+
+    function escapeHtml(str) {
+      const div = document.createElement("div");
+      div.textContent = str;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

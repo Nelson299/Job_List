@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contacts — Static Electric</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="nav-placeholder"></div>
+  <div class="container">
+    <h1>Employee Contacts</h1>
+    <p class="hint">Contact info comes from what admins have on file. Missing your number? Ask an admin to add it.</p>
+    <div id="contact-list" class="loading">Loading contacts...</div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/github-api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/nav.js"></script>
+  <script>
+    const user = Auth.requireAuth();
+    if (user) {
+      renderNav("contacts.html");
+      init();
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement("div");
+      div.textContent = str || "";
+      return div.innerHTML;
+    }
+
+    async function init() {
+      const res = await GitHubAPI.getJSON("data/users.json");
+      const users = (res ? res.data : []).sort((a, b) =>
+        a.firstName.localeCompare(b.firstName)
+      );
+      const listEl = document.getElementById("contact-list");
+      if (users.length === 0) {
+        listEl.innerHTML = '<p class="hint">No employees on file yet.</p>';
+        return;
+      }
+      listEl.innerHTML = users
+        .map(
+          (u) => `
+          <div class="list-item">
+            <div>
+              <strong>${escapeHtml(u.firstName)} ${escapeHtml(u.lastName)}</strong>
+              ${u.isAdmin ? '<span class="badge admin">Admin</span>' : ""}
+            </div>
+            <div class="meta">
+              ${u.phone ? escapeHtml(u.phone) : '<span class="hint">no phone on file</span>'}
+              ${u.email ? " · " + escapeHtml(u.email) : ""}
+            </div>
+          </div>`
+        )
+        .join("");
+    }
+  </script>
+</body>
+</html>

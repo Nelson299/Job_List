@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Address Book — Static Electric</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="nav-placeholder"></div>
+  <div class="container">
+    <h1>Customer Address Book</h1>
+
+    <div class="card">
+      <div class="field-row">
+        <div>
+          <label for="search">Search companies</label>
+          <input type="text" id="search" placeholder="Search by name or address..." />
+        </div>
+        <div style="flex: 0 0 auto; align-self: flex-end;">
+          <button id="new-company-toggle">+ Add Company</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="new-company-card" style="display:none">
+      <h3>Add Company</h3>
+      <form id="new-company-form">
+        <label for="c-name">Company name</label>
+        <input type="text" id="c-name" required />
+        <label for="c-address">Address</label>
+        <input type="text" id="c-address" />
+        <div class="field-row">
+          <div>
+            <label for="c-contact">Contact name</label>
+            <input type="text" id="c-contact" />
+          </div>
+          <div>
+            <label for="c-phone">Phone</label>
+            <input type="tel" id="c-phone" />
+          </div>
+        </div>
+        <label for="c-notes">Notes</label>
+        <textarea id="c-notes"></textarea>
+        <div style="margin-top:16px; display:flex; gap:8px;">
+          <button type="submit">Save Company</button>
+          <button type="button" class="secondary" id="cancel-new-company">Cancel</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="company-list" class="loading">Loading companies...</div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/github-api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/activity.js"></script>
+  <script src="js/nav.js"></script>
+  <script>
+    const user = Auth.requireAuth();
+    let allCompanies = [];
+
+    if (user) {
+      renderNav("address-book.html");
+      init();
+    }
+
+    async function init() {
+      const res = await GitHubAPI.getJSON("data/companies.json");
+      allCompanies = res ? res.data : [];
+      renderCompanies(allCompanies);
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement("div");
+      div.textContent = str || "";
+      return div.innerHTML;
+    }
+
+    function renderCompanies(companies) {
+      const listEl = document.getElementById("company-list");
+      if (companies.length === 0) {
+        listEl.innerHTML = '<p class="hint">No companies yet.</p>';
+        return;
+      }
+      const sorted = [...companies].sort((a, b) => a.name.localeCompare(b.name));
+      listEl.innerHTML = sorted
+        .map(
+          (c) => `
+          <div class="list-item" style="align-items:flex-start; flex-direction:column;">
+            <div style="display:flex; justify-content:space-between; width:100%;">
+              <strong>${escapeHtml(c.name)}</strong>
+              ${c.phone ? `<span class="meta">${escapeHtml(c.phone)}</span>` : ""}
+            </div>
+            ${c.address ? `<div class="meta">${escapeHtml(c.address)}</div>` : ""}
+            ${c.contactName ? `<div class="meta">Contact: ${escapeHtml(c.contactName)}</div>` : ""}
+            ${c.notes ? `<div class="meta">${escapeHtml(c.notes)}</div>` : ""}
+          </div>`
+        )
+        .join("");
+    }
+
+    document.getElementById("search").addEventListener("input", (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      if (!q) return renderCompanies(allCompanies);
+      renderCompanies(
+        allCompanies.filter(
+          (c) =>
+            c.name.toLowerCase().includes(q) ||
+            (c.address || "").toLowerCase().includes(q)
+        )
+      );
+    });
+
+    document.getElementById("new-company-toggle").addEventListener("click", () => {
+      document.getElementById("new-company-card").style.display = "block";
+    });
+    document.getElementById("cancel-new-company").addEventListener("click", () => {
+      document.getElementById("new-company-card").style.display = "none";
+    });
+
+    document.getElementById("new-company-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const newCompany = {
+        id: "co-" + Date.now(),
+        name: document.getElementById("c-name").value.trim(),
+        address: document.getElementById("c-address").value.trim(),
+        contactName: document.getElementById("c-contact").value.trim(),
+        phone: document.getElementById("c-phone").value.trim(),
+        notes: document.getElementById("c-notes").value.trim(),
+      };
+      try {
+        await GitHubAPI.updateJSON(
+          "data/companies.json",
+          (current) => [...current, newCompany],
+          `Add company: ${newCompany.name}`
+        );
+        allCompanies.push(newCompany);
+        await Activity.logActivity("company_added", { companyId: newCompany.id, name: newCompany.name });
+        document.getElementById("new-company-form").reset();
+        document.getElementById("new-company-card").style.display = "none";
+        renderCompanies(allCompanies);
+      } catch (err) {
+        console.error(err);
+        alert("Failed to save company.");
+      }
+    });
+  </script>
+</body>
+</html>

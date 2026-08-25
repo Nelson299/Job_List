@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin — Static Electric</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="nav-placeholder"></div>
+  <div class="container">
+    <h1>Admin</h1>
+    <p class="hint">Job scheduling dates and employee assignment are handled right on the Jobs and job detail pages when you're signed in as an admin.</p>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="users">Users</button>
+      <button class="tab-btn" data-tab="activity">Activity Log</button>
+      <button class="tab-btn" data-tab="alerts">Security Alerts</button>
+      <button class="tab-btn" data-tab="feedback">Feedback</button>
+    </div>
+
+    <!-- Users tab -->
+    <div class="tab-panel active" id="tab-users">
+      <div class="card">
+        <h3>Add Employee</h3>
+        <p class="hint">
+          This adds a regular (non-admin) employee. The admin list is fixed and managed by editing
+          <code>data/users.json</code> directly — use <a href="admin-password-hash-tool.html">the password hash tool</a>
+          to generate a <code>passwordHash</code> when adding a new admin that way.
+        </p>
+        <form id="new-user-form">
+          <div class="field-row">
+            <div>
+              <label for="u-first">First name</label>
+              <input type="text" id="u-first" required />
+            </div>
+            <div>
+              <label for="u-last">Last name</label>
+              <input type="text" id="u-last" required />
+            </div>
+          </div>
+          <div class="field-row">
+            <div>
+              <label for="u-phone">Phone</label>
+              <input type="tel" id="u-phone" />
+            </div>
+            <div>
+              <label for="u-email">Email</label>
+              <input type="email" id="u-email" />
+            </div>
+          </div>
+          <div style="margin-top:16px">
+            <button type="submit">Add Employee</button>
+          </div>
+        </form>
+      </div>
+      <div id="user-list" class="loading">Loading users...</div>
+    </div>
+
+    <!-- Activity tab -->
+    <div class="tab-panel" id="tab-activity">
+      <div class="card">
+        <div class="field-row">
+          <div>
+            <label for="activity-user-filter">Filter by user</label>
+            <select id="activity-user-filter"><option value="">All users</option></select>
+          </div>
+          <div>
+            <label for="activity-date-filter">Filter by date</label>
+            <input type="date" id="activity-date-filter" />
+          </div>
+        </div>
+      </div>
+      <div id="activity-list" class="loading">Loading activity...</div>
+    </div>
+
+    <!-- Alerts tab -->
+    <div class="tab-panel" id="tab-alerts">
+      <div class="card">
+        <h3>Rapid-fire activity</h3>
+        <p class="hint">10+ actions by the same person within 60 seconds.</p>
+        <div id="rapid-fire-list" class="loading">Loading...</div>
+      </div>
+      <div class="card">
+        <h3>Off-hours activity</h3>
+        <p class="hint">Activity before 6am or after 9pm.</p>
+        <div id="off-hours-list" class="loading">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Feedback tab -->
+    <div class="tab-panel" id="tab-feedback">
+      <div id="feedback-list" class="loading">Loading feedback...</div>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/github-api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/activity.js"></script>
+  <script src="js/nav.js"></script>
+  <script>
+    const user = Auth.requireAdmin();
+    let allUsers = [];
+    let allActivity = [];
+
+    if (user) {
+      renderNav("admin.html");
+      initTabs();
+      loadUsers();
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement("div");
+      div.textContent = str || "";
+      return div.innerHTML;
+    }
+
+    function initTabs() {
+      document.querySelectorAll(".tab-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+          document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
+          btn.classList.add("active");
+          document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+          if ((btn.dataset.tab === "activity" || btn.dataset.tab === "alerts") && allActivity.length === 0) {
+            loadActivity();
+          }
+          if (btn.dataset.tab === "feedback") loadFeedback();
+        });
+      });
+    }
+
+    // ---------- Users ----------
+    async function loadUsers() {
+      const res = await GitHubAPI.getJSON("data/users.json");
+      allUsers = res ? res.data : [];
+      renderUsers();
+      populateActivityUserFilter();
+    }
+
+    function renderUsers() {
+      const listEl = document.getElementById("user-list");
+      listEl.innerHTML = allUsers
+        .map(
+          (u) => `
+          <div class="list-item">
+            <div>
+              <strong>${escapeHtml(u.firstName)} ${escapeHtml(u.lastName)}</strong>
+              ${u.isAdmin ? '<span class="badge admin">Admin</span>' : ""}
+              <div class="meta">${escapeHtml(u.phone || "")} ${u.email ? " · " + escapeHtml(u.email) : ""}</div>
+            </div>
+          </div>`
+        )
+        .join("");
+    }
+
+    document.getElementById("new-user-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const newUser = {
+        id: "u-" + Date.now(),
+        firstName: document.getElementById("u-first").value.trim(),
+        lastName: document.getElementById("u-last").value.trim(),
+        isAdmin: false,
+        phone: document.getElementById("u-phone").value.trim(),
+        email: document.getElementById("u-email").value.trim(),
+        dateAdded: new Date().toISOString().slice(0, 10),
+      };
+      try {
+        await GitHubAPI.updateJSON(
+          "data/users.json",
+          (current) => [...current, newUser],
+          `Add user: ${newUser.firstName} ${newUser.lastName}`
+        );
+        allUsers.push(newUser);
+        await Activity.logActivity("user_added", { userId: newUser.id });
+        document.getElementById("new-user-form").reset();
+        renderUsers();
+        populateActivityUserFilter();
+      } catch (err) {
+        console.error(err);
+        alert("Failed to add user.");
+      }
+    });
+
+    // ---------- Activity ----------
+    function populateActivityUserFilter() {
+      const select = document.getElementById("activity-user-filter");
+      select.innerHTML =
+        '<option value="">All users</option>' +
+        allUsers.map((u) => `<option value="${u.id}">${escapeHtml(u.firstName)} ${escapeHtml(u.lastName)}</option>`).join("");
+    }
+
+    async function loadActivity() {
+      document.getElementById("activity-list").innerHTML = '<p class="loading">Loading activity...</p>';
+      allActivity = await Activity.loadRecentMonths(3);
+      renderActivity();
+      renderAlerts();
+    }
+
+    function currentActivityFilters() {
+      return {
+        userId: document.getElementById("activity-user-filter").value,
+        date: document.getElementById("activity-date-filter").value,
+      };
+    }
+
+    function renderActivity() {
+      const { userId, date } = currentActivityFilters();
+      let filtered = [...allActivity].reverse();
+      if (userId) filtered = filtered.filter((e) => e.userId === userId);
+      if (date) filtered = filtered.filter((e) => e.timestamp.slice(0, 10) === date);
+
+      const listEl = document.getElementById("activity-list");
+      if (filtered.length === 0) {
+        listEl.innerHTML = '<p class="hint">No activity found for this filter.</p>';
+        return;
+      }
+      listEl.innerHTML = filtered
+        .slice(0, 300)
+        .map(
+          (e) => `
+          <div class="list-item">
+            <div>
+              <strong>${escapeHtml(e.userName)}</strong> — ${escapeHtml(e.action)}
+              <div class="meta">${escapeHtml(JSON.stringify(e.details || {}))}</div>
+            </div>
+            <span class="meta">${new Date(e.timestamp).toLocaleString()}</span>
+          </div>`
+        )
+        .join("");
+    }
+
+    document.getElementById("activity-user-filter").addEventListener("change", renderActivity);
+    document.getElementById("activity-date-filter").addEventListener("change", renderActivity);
+
+    function renderAlerts() {
+      const alerts = Activity.computeAlerts(allActivity);
+
+      const rfEl = document.getElementById("rapid-fire-list");
+      rfEl.innerHTML =
+        alerts.rapidFire.length === 0
+          ? '<p class="hint">None detected.</p>'
+          : alerts.rapidFire
+              .map(
+                (a) =>
+                  `<div class="alert rapid-fire">${escapeHtml(a.userName)}: ${a.count} actions between ${new Date(a.from).toLocaleTimeString()} and ${new Date(a.to).toLocaleTimeString()} on ${new Date(a.from).toLocaleDateString()}</div>`
+              )
+              .join("");
+
+      const ohEl = document.getElementById("off-hours-list");
+      ohEl.innerHTML =
+        alerts.offHours.length === 0
+          ? '<p class="hint">None detected.</p>'
+          : alerts.offHours
+              .map(
+                (a) =>
+                  `<div class="alert off-hours">${escapeHtml(a.userName)}: ${escapeHtml(a.action)} at ${new Date(a.timestamp).toLocaleString()}</div>`
+              )
+              .join("");
+    }
+
+    // ---------- Feedback ----------
+    async function loadFeedback() {
+      const listEl = document.getElementById("feedback-list");
+      listEl.innerHTML = '<p class="loading">Loading feedback...</p>';
+      const res = await GitHubAPI.getJSON("data/feedback.json");
+      const feedback = (res ? res.data : []).sort((a, b) =>
+        b.timestamp.localeCompare(a.timestamp)
+      );
+      if (feedback.length === 0) {
+        listEl.innerHTML = '<p class="hint">No feedback submitted yet.</p>';
+        return;
+      }
+      listEl.innerHTML = feedback
+        .map(
+          (f) => `
+          <div class="list-item" style="align-items:flex-start;">
+            <div>
+              <span class="badge ${f.type === "bug" ? "" : "active"}">${escapeHtml(f.type)}</span>
+              <span class="badge ${f.status === "open" ? "scheduled" : "complete"}">${escapeHtml(f.status)}</span>
+              <div style="margin-top:6px">${escapeHtml(f.text)}</div>
+              <div class="meta">${new Date(f.timestamp).toLocaleString()}</div>
+            </div>
+            <button type="button" class="secondary small toggle-feedback-btn" data-id="${f.id}">
+              ${f.status === "open" ? "Mark resolved" : "Reopen"}
+            </button>
+          </div>`
+        )
+        .join("");
+      listEl.querySelectorAll(".toggle-feedback-btn").forEach((btn) =>
+        btn.addEventListener("click", () => toggleFeedback(btn.dataset.id))
+      );
+    }
+
+    async function toggleFeedback(id) {
+      try {
+        await GitHubAPI.updateJSON(
+          "data/feedback.json",
+          (current) =>
+            current.map((f) =>
+              f.id === id ? { ...f, status: f.status === "open" ? "resolved" : "open" } : f
+            ),
+          `Toggle feedback status ${id}`
+        );
+        loadFeedback();
+      } catch (err) {
+        console.error(err);
+        alert("Failed to update feedback.");
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Job — Static Electric</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="nav-placeholder"></div>
+  <div class="container">
+    <p><a href="jobs.html">&larr; Back to jobs</a></p>
+    <div id="job-content" class="loading">Loading job...</div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/github-api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/activity.js"></script>
+  <script src="js/voice.js"></script>
+  <script src="js/nav.js"></script>
+  <script>
+    const user = Auth.requireAuth();
+    const jobId = new URLSearchParams(window.location.search).get("id");
+    let job, allCompanies, allUsers;
+
+    if (user) {
+      renderNav("jobs.html");
+      init();
+    }
+
+    async function init() {
+      const [jobsRes, companiesRes, usersRes] = await Promise.all([
+        GitHubAPI.getJSON("data/jobs.json"),
+        GitHubAPI.getJSON("data/companies.json"),
+        GitHubAPI.getJSON("data/users.json"),
+      ]);
+      const jobs = jobsRes ? jobsRes.data : [];
+      allCompanies = companiesRes ? companiesRes.data : [];
+      allUsers = usersRes ? usersRes.data : [];
+      job = jobs.find((j) => j.id === jobId);
+
+      if (!job) {
+        document.getElementById("job-content").innerHTML = "<p>Job not found.</p>";
+        return;
+      }
+      render();
+    }
+
+    function companyName(id) {
+      const c = allCompanies.find((c) => c.id === id);
+      return c ? c.name : "Unknown company";
+    }
+
+    function userName(id) {
+      const u = allUsers.find((u) => u.id === id);
+      return u ? `${u.firstName} ${u.lastName}` : "Unknown";
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement("div");
+      div.textContent = str || "";
+      return div.innerHTML;
+    }
+
+    function render() {
+      const today = new Date().toISOString().slice(0, 10);
+      const isFuture = job.scheduledDate && job.scheduledDate > today;
+      const status = isFuture ? "scheduled" : job.status || "active";
+
+      document.getElementById("job-content").innerHTML = `
+        <div class="card">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+              <h1>${escapeHtml(job.title)}</h1>
+              <p class="hint">${escapeHtml(companyName(job.companyId))} &middot; Scheduled ${job.scheduledDate}</p>
+            </div>
+            <span class="badge ${status}">${status}</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Assigned employees</h3>
+          <div id="assigned-list"></div>
+          ${user.isAdmin ? '<div id="assign-editor" style="margin-top:10px"></div>' : ""}
+        </div>
+
+        <div class="card">
+          <h3>Notes</h3>
+          <button type="button" id="voice-btn">🎤 Voice to text</button>
+          <textarea id="notes" style="margin-top:10px">${escapeHtml(job.notes)}</textarea>
+          <div style="margin-top:10px">
+            <button id="save-notes-btn">Save Notes</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Parts used</h3>
+          <div id="parts-list"></div>
+          <div class="field-row" style="margin-top:10px">
+            <input type="text" id="part-name" placeholder="Part name" />
+            <input type="number" id="part-qty" placeholder="Qty" min="1" style="max-width:90px" />
+            <input type="number" id="part-cost" placeholder="Cost (optional)" min="0" step="0.01" style="max-width:120px" />
+            <button type="button" id="add-part-btn" style="flex:0 0 auto">+ Add</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Photos</h3>
+          <input type="file" id="photo-input" accept="image/*" capture="environment" />
+          <div id="photo-grid" class="photo-grid"></div>
+        </div>
+      `;
+
+      renderAssigned();
+      renderParts();
+      renderPhotos();
+
+      Voice.attach(document.getElementById("voice-btn"), document.getElementById("notes"));
+
+      document.getElementById("save-notes-btn").addEventListener("click", saveNotes);
+      document.getElementById("add-part-btn").addEventListener("click", addPart);
+      document.getElementById("photo-input").addEventListener("change", uploadPhoto);
+    }
+
+    function renderAssigned() {
+      const listEl = document.getElementById("assigned-list");
+      if (job.assignedUserIds.length === 0) {
+        listEl.innerHTML = '<p class="hint">No one assigned yet.</p>';
+      } else {
+        listEl.innerHTML = job.assignedUserIds
+          .map((id) => `<span class="badge">${escapeHtml(userName(id))}</span>`)
+          .join(" ");
+      }
+
+      if (user.isAdmin) {
+        const editorEl = document.getElementById("assign-editor");
+        editorEl.innerHTML = allUsers
+          .map(
+            (u) => `
+            <label style="display:inline-flex; align-items:center; gap:4px; font-weight:400; margin-right:14px;">
+              <input type="checkbox" class="assign-checkbox" value="${u.id}" ${
+              job.assignedUserIds.includes(u.id) ? "checked" : ""
+            } />
+              ${escapeHtml(u.firstName)} ${escapeHtml(u.lastName)}
+            </label>`
+          )
+          .join("") + '<div style="margin-top:10px"><button type="button" id="save-assign-btn" class="small">Save Assignment</button></div>';
+        document.getElementById("save-assign-btn").addEventListener("click", saveAssignment);
+      }
+    }
+
+    function renderParts() {
+      const listEl = document.getElementById("parts-list");
+      if (job.parts.length === 0) {
+        listEl.innerHTML = '<p class="hint">No parts added yet.</p>';
+        return;
+      }
+      listEl.innerHTML = job.parts
+        .map(
+          (p, i) => `
+          <div class="list-item">
+            <div>${escapeHtml(p.name)} &times; ${p.qty}${p.cost ? ` &middot; $${Number(p.cost).toFixed(2)}` : ""}</div>
+            <button type="button" class="secondary small remove-part-btn" data-index="${i}">Remove</button>
+          </div>`
+        )
+        .join("");
+      listEl.querySelectorAll(".remove-part-btn").forEach((btn) =>
+        btn.addEventListener("click", () => removePart(Number(btn.dataset.index)))
+      );
+    }
+
+    async function renderPhotos() {
+      const gridEl = document.getElementById("photo-grid");
+      if (job.photoPaths.length === 0) {
+        gridEl.innerHTML = '<p class="hint">No photos yet.</p>';
+        return;
+      }
+      gridEl.innerHTML = job.photoPaths.map(() => "").join("");
+      const imgs = await Promise.all(
+        job.photoPaths.map(async (path) => {
+          const b64 = await GitHubAPI.getBinaryBase64(path);
+          const ext = path.split(".").pop().toLowerCase();
+          const mime = ext === "png" ? "image/png" : "image/jpeg";
+          return b64 ? `<img src="data:${mime};base64,${b64}" alt="job photo" />` : "";
+        })
+      );
+      gridEl.innerHTML = imgs.join("");
+    }
+
+    async function saveNotes() {
+      const btn = document.getElementById("save-notes-btn");
+      btn.disabled = true;
+      btn.textContent = "Saving...";
+      const notes = document.getElementById("notes").value;
+      try {
+        await GitHubAPI.updateJSON(
+          "data/jobs.json",
+          (jobs) => jobs.map((j) => (j.id === jobId ? { ...j, notes } : j)),
+          `Update notes for job ${jobId}`
+        );
+        job.notes = notes;
+        await Activity.logActivity("job_notes_updated", { jobId });
+      } catch (err) {
+        console.error(err);
+        alert("Failed to save notes.");
+      }
+      btn.disabled = false;
+      btn.textContent = "Save Notes";
+    }
+
+    async function saveAssignment() {
+      const checked = Array.from(
+        document.querySelectorAll(".assign-checkbox:checked")
+      ).map((cb) => cb.value);
+      try {
+        await GitHubAPI.updateJSON(
+          "data/jobs.json",
+          (jobs) =>
+            jobs.map((j) =>
+              j.id === jobId ? { ...j, assignedUserIds: checked } : j
+            ),
+          `Update assignment for job ${jobId}`
+        );
+        job.assignedUserIds = checked;
+        await Activity.logActivity("job_assignment_updated", { jobId, assignedUserIds: checked });
+        renderAssigned();
+      } catch (err) {
+        console.error(err);
+        alert("Failed to save assignment.");
+      }
+    }
+
+    async function addPart() {
+      const name = document.getElementById("part-name").value.trim();
+      const qty = document.getElementById("part-qty").value || 1;
+      const cost = document.getElementById("part-cost").value;
+      if (!name) return;
+
+      const newPart = { name, qty: Number(qty), cost: cost ? Number(cost) : null };
+      try {
+        await GitHubAPI.updateJSON(
+          "data/jobs.json",
+          (jobs) =>
+            jobs.map((j) =>
+              j.id === jobId ? { ...j, parts: [...j.parts, newPart] } : j
+            ),
+          `Add part to job ${jobId}`
+        );
+        job.parts.push(newPart);
+        await Activity.logActivity("job_part_added", { jobId, part: newPart });
+        document.getElementById("part-name").value = "";
+        document.getElementById("part-qty").value = "";
+        document.getElementById("part-cost").value = "";
+        renderParts();
+      } catch (err) {
+        console.error(err);
+        alert("Failed to add part.");
+      }
+    }
+
+    async function removePart(index) {
+      try {
+        await GitHubAPI.updateJSON(
+          "data/jobs.json",
+          (jobs) =>
+            jobs.map((j) =>
+              j.id === jobId
+                ? { ...j, parts: j.parts.filter((_, i) => i !== index) }
+                : j
+            ),
+          `Remove part from job ${jobId}`
+        );
+        job.parts.splice(index, 1);
+        await Activity.logActivity("job_part_removed", { jobId });
+        renderParts();
+      } catch (err) {
+        console.error(err);
+        alert("Failed to remove part.");
+      }
+    }
+
+    async function uploadPhoto(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const input = e.target;
+      input.disabled = true;
+
+      try {
+        const base64 = await fileToBase64(file);
+        const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+        const path = `photos/${jobId}/${Date.now()}-${safeName}`;
+        const savedPath = await GitHubAPI.putBinary(path, base64, `Add photo to job ${jobId}`);
+
+        await GitHubAPI.updateJSON(
+          "data/jobs.json",
+          (jobs) =>
+            jobs.map((j) =>
+              j.id === jobId
+                ? { ...j, photoPaths: [...j.photoPaths, savedPath] }
+                : j
+            ),
+          `Attach photo to job ${jobId}`
+        );
+        job.photoPaths.push(savedPath);
+        await Activity.logActivity("job_photo_uploaded", { jobId });
+        renderPhotos();
+      } catch (err) {
+        console.error(err);
+        alert("Failed to upload photo.");
+      }
+      input.disabled = false;
+      input.value = "";
+    }
+
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+  </script>
+</body>
+</html>

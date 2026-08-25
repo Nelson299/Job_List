@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Feedback — Static Electric</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="nav-placeholder"></div>
+  <div class="container">
+    <h1>Feedback</h1>
+    <p class="hint">Found a bug or have an idea to improve the app? Let the admin team know.</p>
+
+    <div class="card">
+      <form id="feedback-form">
+        <label for="type">Type</label>
+        <select id="type">
+          <option value="bug">Bug</option>
+          <option value="idea">Idea</option>
+        </select>
+        <label for="text">Details</label>
+        <textarea id="text" required placeholder="Describe the bug or idea..."></textarea>
+        <div id="success" class="hint" style="display:none; color: var(--success); margin-top:8px;">
+          Thanks — your feedback was submitted.
+        </div>
+        <div style="margin-top:16px">
+          <button type="submit" id="submit-btn">Submit</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/github-api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/activity.js"></script>
+  <script src="js/nav.js"></script>
+  <script>
+    const user = Auth.requireAuth();
+    if (user) renderNav("feedback.html");
+
+    document.getElementById("feedback-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById("submit-btn");
+      btn.disabled = true;
+      btn.textContent = "Submitting...";
+
+      const entry = {
+        id: "fb-" + Date.now(),
+        userId: user.id,
+        type: document.getElementById("type").value,
+        text: document.getElementById("text").value.trim(),
+        timestamp: new Date().toISOString(),
+        status: "open",
+      };
+
+      try {
+        await GitHubAPI.updateJSON(
+          "data/feedback.json",
+          (current) => [...current, entry],
+          `Feedback (${entry.type}) from ${user.firstName} ${user.lastName}`
+        );
+        await Activity.logActivity("feedback_submitted", { type: entry.type });
+        document.getElementById("feedback-form").reset();
+        document.getElementById("success").style.display = "block";
+      } catch (err) {
+        console.error(err);
+        alert("Failed to submit feedback.");
+      }
+      btn.disabled = false;
+      btn.textContent = "Submit";
+    });
+  </script>
+</body>
+</html>
