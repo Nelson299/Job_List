@@ -22,37 +22,13 @@
     <!-- Users tab -->
     <div class="tab-panel active" id="tab-users">
       <div class="card">
-        <h3>Add Employee</h3>
+        <h3>Adding someone</h3>
         <p class="hint">
-          This adds a regular (non-admin) employee. The admin list is fixed and managed by editing
-          <code>data/users.json</code> directly — use <a href="admin-password-hash-tool.html">the password hash tool</a>
-          to generate a <code>passwordHash</code> when adding a new admin that way.
+          The user list is static — it lives in <code>js/users-data.js</code>, not a data file fetched at
+          runtime. To add an employee, add an entry to that file and push. For a new admin, first generate a
+          <code>passwordHash</code> with <a href="admin-password-hash-tool.html">the password hash tool</a>,
+          then paste it into their entry.
         </p>
-        <form id="new-user-form">
-          <div class="field-row">
-            <div>
-              <label for="u-first">First name</label>
-              <input type="text" id="u-first" required />
-            </div>
-            <div>
-              <label for="u-last">Last name</label>
-              <input type="text" id="u-last" required />
-            </div>
-          </div>
-          <div class="field-row">
-            <div>
-              <label for="u-phone">Phone</label>
-              <input type="tel" id="u-phone" />
-            </div>
-            <div>
-              <label for="u-email">Email</label>
-              <input type="email" id="u-email" />
-            </div>
-          </div>
-          <div style="margin-top:16px">
-            <button type="submit">Add Employee</button>
-          </div>
-        </form>
       </div>
       <div id="user-list" class="loading">Loading users...</div>
     </div>
@@ -96,6 +72,7 @@
 
   <script src="js/config.js"></script>
   <script src="js/github-api.js"></script>
+  <script src="js/users-data.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/activity.js"></script>
   <script src="js/nav.js"></script>
@@ -132,9 +109,8 @@
     }
 
     // ---------- Users ----------
-    async function loadUsers() {
-      const res = await GitHubAPI.getJSON("data/users.json");
-      allUsers = res ? res.data : [];
+    function loadUsers() {
+      allUsers = USERS;
       renderUsers();
       populateActivityUserFilter();
     }
@@ -154,34 +130,6 @@
         )
         .join("");
     }
-
-    document.getElementById("new-user-form").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const newUser = {
-        id: "u-" + Date.now(),
-        firstName: document.getElementById("u-first").value.trim(),
-        lastName: document.getElementById("u-last").value.trim(),
-        isAdmin: false,
-        phone: document.getElementById("u-phone").value.trim(),
-        email: document.getElementById("u-email").value.trim(),
-        dateAdded: new Date().toISOString().slice(0, 10),
-      };
-      try {
-        await GitHubAPI.updateJSON(
-          "data/users.json",
-          (current) => [...current, newUser],
-          `Add user: ${newUser.firstName} ${newUser.lastName}`
-        );
-        allUsers.push(newUser);
-        await Activity.logActivity("user_added", { userId: newUser.id });
-        document.getElementById("new-user-form").reset();
-        renderUsers();
-        populateActivityUserFilter();
-      } catch (err) {
-        console.error(err);
-        alert("Failed to add user.");
-      }
-    });
 
     // ---------- Activity ----------
     function populateActivityUserFilter() {

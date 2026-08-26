@@ -1,5 +1,6 @@
-// Name-only sign-in against the pre-created list in data/users.json.
-// No password. Session lives in sessionStorage (cleared when the tab closes).
+// Name-only sign-in against the static roster in js/users-data.js.
+// No password for regular employees. Session lives in sessionStorage
+// (cleared when the tab closes).
 
 const Auth = (() => {
   const SESSION_KEY = "sc_current_user";
@@ -26,10 +27,11 @@ const Auth = (() => {
       .join("");
   }
 
-  // Looks up a user by first+last name (case-insensitive, trimmed). Admin
-  // accounts additionally require a matching password (checked against
-  // passwordHash). The admin list itself is fixed and managed by directly
-  // editing data/users.json — this app has no "make admin" UI.
+  // Looks up a user by first+last name (case-insensitive, trimmed) in the
+  // static USERS roster (js/users-data.js). Admin accounts additionally
+  // require a matching password (checked against passwordHash). The
+  // roster is fixed and managed by editing js/users-data.js directly —
+  // this app has no "make admin" UI.
   //
   // Returns one of:
   //   { ok: true, user }
@@ -37,9 +39,7 @@ const Auth = (() => {
   //   { ok: false, reason: "password_required" }
   //   { ok: false, reason: "bad_password" }
   async function signIn(firstName, lastName, password) {
-    const result = await GitHubAPI.getJSON("data/users.json");
-    const users = result ? result.data : [];
-    const match = users.find(
+    const match = USERS.find(
       (u) =>
         u.firstName.trim().toLowerCase() === firstName.trim().toLowerCase() &&
         u.lastName.trim().toLowerCase() === lastName.trim().toLowerCase()
