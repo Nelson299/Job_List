@@ -16,8 +16,10 @@
         <input type="text" id="first-name" required autocomplete="given-name" />
         <label for="last-name">Last name</label>
         <input type="text" id="last-name" required autocomplete="family-name" />
-        <label for="password">Password <span class="hint">(admins only)</span></label>
-        <input type="password" id="password" autocomplete="current-password" />
+        <div id="password-field" style="display:none">
+          <label for="password">Password</label>
+          <input type="password" id="password" autocomplete="current-password" />
+        </div>
         <div id="error" class="error-text" style="display:none"></div>
         <div style="margin-top:16px">
           <button type="submit" id="submit-btn">Sign in</button>
@@ -38,6 +40,25 @@
     const form = document.getElementById("sign-in-form");
     const errorEl = document.getElementById("error");
     const submitBtn = document.getElementById("submit-btn");
+    const firstNameEl = document.getElementById("first-name");
+    const lastNameEl = document.getElementById("last-name");
+    const passwordFieldEl = document.getElementById("password-field");
+    const passwordEl = document.getElementById("password");
+
+    // Show the password field only once the typed name matches a known
+    // admin — regular employees never see it.
+    function updatePasswordVisibility() {
+      const match = USERS.find(
+        (u) =>
+          u.firstName.trim().toLowerCase() === firstNameEl.value.trim().toLowerCase() &&
+          u.lastName.trim().toLowerCase() === lastNameEl.value.trim().toLowerCase()
+      );
+      const isAdmin = !!(match && match.isAdmin);
+      passwordFieldEl.style.display = isAdmin ? "block" : "none";
+      if (!isAdmin) passwordEl.value = "";
+    }
+    firstNameEl.addEventListener("input", updatePasswordVisibility);
+    lastNameEl.addEventListener("input", updatePasswordVisibility);
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
